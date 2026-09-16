@@ -33,6 +33,16 @@ The project is structured around three primary functional tabs:
 - Background operations (polling `adb devices`, querying `sys.boot_completed`, launching `emulator`, running `./gradlew`) MUST be executed asynchronously using `tokio::spawn` or background worker channels (`tokio::sync::mpsc`).
 - Communication between background tasks and the UI loop flows via an `AppEvent` channel (e.g. `AppEvent::DevicesRefreshed(Vec<Device>)`, `AppEvent::ActionProgress(String)`).
 
+### Context-Aware Key Mapping & Action Routing
+
+**Rule 2: Keep `main.rs` minimal. Isolate tab key-bindings and executions in `src/handler/<tab>.rs`.**
+
+- In `main.rs`, only global shortcuts (`q`, `Esc`, `F1`–`F3`) are handled globally.
+- All tab-specific keys are delegated to the active tab's handler module using a two-stage pattern:
+    1. **Pure Key Mapping**: `(KeyCode, PaneFocus/State) -> Option<TabAction>`
+    2. **Action Dispatcher**: `execute_action(action, state, tx)`
+- When adding new tabs (Build F2, Logs F3), implement `src/handler/build.rs` and `src/handler/logs.rs` respectively. Do NOT add nested `if-else` blocks in `main.rs`.
+
 ### Device Interaction Rules (Important Note)
 
 - **Virtual Emulators**: Run headless (`-no-window -no-audio -no-boot-anim -gpu host`). Use `scrcpy` to display their screen and control them with mouse and keyboard (`--mouse=sdk --keyboard=sdk`).
@@ -46,6 +56,11 @@ src/
 ├── model.rs           # Core domain models (AvdInfo, DeviceTarget, TargetType, etc.)
 ├── events.rs          # Channel event types (Key, Tick, DevicesRefreshed, ActionLog)
 ├── app.rs             # Application state, navigation, active pane focus
+├── handler/
+│   ├── mod.rs         # Handlers module declaration
+│   ├── emulator.rs    # Emulator tab key mapping & action execution
+│   ├── build.rs       # (Upcoming) Build tab key mapping & actions
+│   └── logs.rs        # (Upcoming) Logs tab key mapping & actions
 ├── ui/
 │   ├── mod.rs         # Root layout (header, tabs, status bar)
 │   ├── emulator.rs    # Emulator & device management view (dual pane + drawer)

@@ -1,6 +1,8 @@
 use std::process::Stdio;
 use tokio::process::Command;
+use tokio::sync::mpsc;
 
+use crate::events::AppEvent;
 use crate::model::{AvdInfo, DeviceTarget, TargetType};
 
 /// List all installed virtual devices using `emulator -list-avds`
@@ -62,6 +64,21 @@ pub async fn list_active_devices() -> Result<Vec<DeviceTarget>, String> {
     }
 
     Ok(devices)
+}
+
+/// Convenient helper to query both AVDs and active targets and send event
+pub async fn refresh_all_devices(tx: &mpsc::Sender<AppEvent>) {
+    let avds = list_installed_avds().await.unwrap_or_else(|err| {
+        let _ = tx.try_send(AppEvent::StatusLog(err));
+        Vec::new()
+    });
+
+    let devices = list_active_devices().await.unwrap_or_else(|err| {
+        let _ = tx.try_send(AppEvent::StatusLog(err));
+        Vec::new()
+    });
+
+    let _ = tx.send(AppEvent::DevicesRefreshed { avds, devices }).await;
 }
 
 pub fn parse_adb_device_line(line: &str) -> Option<DeviceTarget> {
