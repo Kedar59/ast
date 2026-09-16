@@ -1,7 +1,7 @@
 # `ast` — Android Studio TUI
 
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 A fast, lightweight, keyboard-driven Terminal User Interface (TUI) for Android development workflows. Built with **Rust**, **Ratatui**, and **Tokio**.
 
@@ -10,24 +10,27 @@ A fast, lightweight, keyboard-driven Terminal User Interface (TUI) for Android d
 ## ⚡ Features
 
 ### 1. Emulator & Device Management (F1)
-- **Automatic Device Discovery**:
-  - Lists installed Android Virtual Devices (AVDs) via `emulator -list-avds`.
-  - Lists active USB-connected physical devices and running emulators via `adb devices -l`.
-  - Automatic background polling every 2.5s with non-blocking UI.
-- **Headless Virtual Device Execution**:
-  - Launch AVDs headlessly with host GPU acceleration (`-no-window -no-audio -no-boot-anim -gpu host`) for high performance and low memory footprint.
-- **Integrated Display & Controls via `scrcpy`**:
-  - One-key display mirroring for emulators (`scrcpy --mouse=sdk --keyboard=sdk`).
-  - Differentiates physical USB phones (operated by hand) from virtual emulators.
-- **One-Key Build & Deploy**:
-  - Build debug APKs (`./gradlew assembleDebug --console=plain`) and install directly to the selected target (`./gradlew installDebug`).
-- **Live Output Drawer**:
-  - Real-time rolling command logs showing Gradle build output, boot statuses, and process notifications.
 
-### 2. Build & Gradle (F2) *(Upcoming)*
+- **Automatic Device Discovery**:
+    - Lists installed Android Virtual Devices (AVDs) via `emulator -list-avds`.
+    - Lists active USB-connected physical devices and running emulators via `adb devices -l`.
+    - Automatic background polling every 2.5s with non-blocking UI.
+- **Headless Virtual Device Execution**:
+    - Launch AVDs headlessly with host GPU acceleration (`-no-window -no-audio -no-boot-anim -gpu host`) for high performance and low memory footprint.
+- **Integrated Display & Controls via `scrcpy`**:
+    - One-key display mirroring for emulators (`scrcpy --mouse=sdk --keyboard=sdk`).
+    - Differentiates physical USB phones (operated by hand) from virtual emulators.
+- **One-Key Build & Deploy**:
+    - Build debug APKs (`./gradlew assembleDebug --console=plain`) and install directly to the selected target (`./gradlew installDebug`).
+- **Live Output Drawer**:
+    - Real-time rolling command logs showing Gradle build output, boot statuses, and process notifications.
+
+### 2. Build & Gradle (F2) _(Upcoming)_
+
 - Run common Gradle tasks, view dependency trees, and inspect build artifacts.
 
-### 3. Logs & Logcat (F3) *(Upcoming)*
+### 3. Logs & Logcat (F3) _(Upcoming)_
+
 - Real-time log streaming filtered by application package, PID, or log level.
 
 ---
@@ -35,29 +38,32 @@ A fast, lightweight, keyboard-driven Terminal User Interface (TUI) for Android d
 ## 🎮 Keybindings
 
 ### Global
-| Key | Action |
-| --- | --- |
-| `F1` | Switch to **Emulator & Devices** Tab |
-| `F2` | Switch to **Build & Gradle** Tab |
-| `F3` | Switch to **Logs & Logcat** Tab |
-| `q` / `Esc` | Quit `ast` |
+
+| Key         | Action                               |
+| ----------- | ------------------------------------ |
+| `F1`        | Switch to **Emulator & Devices** Tab |
+| `F2`        | Switch to **Build & Gradle** Tab     |
+| `F3`        | Switch to **Logs & Logcat** Tab      |
+| `q` / `Esc` | Quit `ast`                           |
 
 ### Emulator Tab (`F1`)
-| Key | Context | Action |
-| --- | --- | --- |
-| `Tab` / `←` / `→` | Any | Switch focus between **Installed AVDs** and **Running Targets** |
-| `↑` / `↓` | Any | Navigate items within the focused list |
-| `Enter` / `r` | Installed AVDs | Launch selected AVD headlessly with host GPU |
-| `s` | Running Targets | Launch `scrcpy` display window *(Emulators only)* |
-| `b` | Running Targets | Build Debug APK & deploy to selected target |
-| `k` | Running Targets | Stop selected emulator (`adb emu kill`) |
-| `R` | Any | Force refresh device and AVD lists |
+
+| Key               | Context         | Action                                                          |
+| ----------------- | --------------- | --------------------------------------------------------------- |
+| `Tab` / `←` / `→` | Any             | Switch focus between **Installed AVDs** and **Running Targets** |
+| `↑` / `↓`         | Any             | Navigate items within the focused list                          |
+| `Enter` / `r`     | Installed AVDs  | Launch selected AVD headlessly with host GPU                    |
+| `s`               | Running Targets | Launch `scrcpy` display window _(Emulators only)_               |
+| `b`               | Running Targets | Build Debug APK & deploy to selected target                     |
+| `k`               | Running Targets | Stop selected emulator (`adb emu kill`)                         |
+| `R`               | Any             | Force refresh device and AVD lists                              |
 
 ---
 
 ## 🛠️ Prerequisites
 
 Ensure the following tools are installed and available in your `PATH`:
+
 - **Rust** (2024 edition / 1.85+)
 - **Android SDK Platform-Tools** (`adb`)
 - **Android SDK Emulator** (`emulator`)
@@ -65,6 +71,7 @@ Ensure the following tools are installed and available in your `PATH`:
 - **JDK 17+** (for Gradle builds)
 
 Verify standard tool locations:
+
 ```bash
 which adb emulator scrcpy
 ```
@@ -74,6 +81,7 @@ which adb emulator scrcpy
 ## 🚀 Getting Started
 
 ### Clone & Build
+
 ```bash
 git clone https://github.com/your-username/ast.git
 cd ast
@@ -81,11 +89,14 @@ cargo build --release
 ```
 
 ### Run
+
 Launch `ast` from inside any Android project root:
+
 ```bash
 cargo run
 ```
-*(Or place the compiled binary in your `$PATH` and run `ast`).*
+
+_(Or place the compiled binary in your `$PATH` and run `ast`)._
 
 ---
 
@@ -99,8 +110,4 @@ cargo run
 
 ## 📜 License
 
-Dual-licensed under either of:
-- Apache License, Version 2.0
-- MIT License
-
-at your option.
+This project is licensed under the **GNU General Public License v3.0** (GPLv3). See the [`LICENSE`](LICENSE) file for details.
