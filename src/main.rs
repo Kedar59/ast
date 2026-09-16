@@ -16,7 +16,7 @@ use tokio_stream::StreamExt;
 use crate::android::discovery::refresh_all_devices;
 use crate::app::AppState;
 use crate::events::AppEvent;
-use crate::model::ScreenType;
+use crate::model::{ScreenType, TaskStatus};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -75,6 +75,37 @@ async fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
                             app_state.add_log(format!("✘ [{action}] {message}"));
                         }
                     }
+                    AppEvent::GradleLogLine(line) => {
+                        app_state.append_gradle_line(line);
+                    }
+                    AppEvent::GradleTaskStarted(name) => {
+                        app_state.gradle_state.active_task_name = Some(name);
+                        app_state.gradle_state.status = TaskStatus::Running {
+                            started_at: std::time::Instant::now(),
+                        };
+                    }
+                    AppEvent::GradleTaskFinished {
+                        task: _,
+                        success,
+                        exit_code,
+                        duration,
+                        apk_path,
+                    } => {
+                        if success {
+                            app_state.gradle_state.status = TaskStatus::Success { duration };
+                        } else {
+                            app_state.gradle_state.status = TaskStatus::Failed {
+                                exit_code,
+                                duration,
+                            };
+                        }
+                        if let Some(path) = apk_path {
+                            app_state.gradle_state.apk_path = Some(path);
+                        }
+                    }
+                    AppEvent::GradleTaskCancelled => {
+                        app_state.gradle_state.status = TaskStatus::Cancelled;
+                    }
                     AppEvent::Tick => {}
                 }
             }
@@ -101,7 +132,9 @@ async fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
                                 }
                             }
                             ScreenType::Build => {
-                                // Delegated to handler::build when implemented
+                                if let Some(action) = handler::build::map_key(other) {
+                                    handler::build::execute_action(action, &mut app_state, &event_tx);
+                                }
                             }
                             ScreenType::Logs => {
                                 // Delegated to handler::logs when implemented

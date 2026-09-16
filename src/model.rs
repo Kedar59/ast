@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetType {
     Emulator,
@@ -55,4 +57,44 @@ pub enum ScreenType {
     Emu = 0,
     Build = 1,
     Logs = 2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum TaskStatus {
+    #[default]
+    Idle,
+    Running {
+        started_at: Instant,
+    },
+    Success {
+        duration: Duration,
+    },
+    Failed {
+        exit_code: Option<i32>,
+        duration: Duration,
+    },
+    Cancelled,
+}
+
+#[derive(Debug, Clone)]
+pub struct GradleState {
+    pub output_lines: Vec<String>,
+    pub scroll_offset: usize,
+    pub auto_scroll: bool,
+    pub status: TaskStatus,
+    pub active_task_name: Option<String>,
+    pub apk_path: Option<String>,
+}
+
+impl Default for GradleState {
+    fn default() -> Self {
+        Self {
+            output_lines: Vec::new(),
+            scroll_offset: 0,
+            auto_scroll: true,
+            status: TaskStatus::Idle,
+            active_task_name: None,
+            apk_path: None,
+        }
+    }
 }

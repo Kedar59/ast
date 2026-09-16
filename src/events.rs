@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::model::{AvdInfo, DeviceTarget};
 
 #[derive(Debug)]
@@ -13,5 +15,15 @@ pub enum AppEvent {
         success: bool,
         message: String,
     },
+    GradleLogLine(String),
+    GradleTaskStarted(String),
+    GradleTaskFinished {
+        task: String,
+        success: bool,
+        exit_code: Option<i32>,
+        duration: Duration,
+        apk_path: Option<String>,
+    },
+    GradleTaskCancelled,
     Tick,
 }

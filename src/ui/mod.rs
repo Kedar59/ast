@@ -1,3 +1,4 @@
+pub mod build;
 pub mod emulator;
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -29,7 +30,7 @@ pub fn render_ui(frame: &mut Frame, app_state: &AppState) {
 
     match app_state.screen_type {
         ScreenType::Emu => emulator::render_emulator_tab(frame, main_content, app_state),
-        ScreenType::Build => render_placeholder(frame, main_content, "Build and Gradle Screen (F2)"),
+        ScreenType::Build => build::render_build_tab(frame, main_content, app_state),
         ScreenType::Logs => render_placeholder(frame, main_content, "Logs and Logcat Screen (F3)"),
     }
 }
@@ -37,12 +38,16 @@ pub fn render_ui(frame: &mut Frame, app_state: &AppState) {
 fn render_tabs(frame: &mut Frame, area: Rect, app_state: &AppState) {
     let selected_tab = app_state.screen_type as usize;
 
-    let tabs = Tabs::new(vec!["[F1] Emulator & Devices", "[F2] Build & Gradle", "[F3] Logs & Logcat"])
-        .style(Color::DarkGray)
-        .highlight_style(Style::default().cyan().bold().underlined())
-        .select(selected_tab)
-        .divider(symbols::DOT)
-        .padding(" ", " ");
+    let tabs = Tabs::new(vec![
+        "[F1] Emulator & Devices",
+        "[F2] Build & Gradle",
+        "[F3] Logs & Logcat",
+    ])
+    .style(Color::DarkGray)
+    .highlight_style(Style::default().cyan().bold().underlined())
+    .select(selected_tab)
+    .divider(symbols::DOT)
+    .padding(" ", " ");
     frame.render_widget(tabs, area);
 }
 

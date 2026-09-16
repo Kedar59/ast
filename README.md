@@ -9,7 +9,7 @@ A fast, lightweight, keyboard-driven Terminal User Interface (TUI) for Android d
 
 ## ⚡ Features
 
-### 1. Emulator & Device Management (F1)
+### 1. Emulator & Device Management (`F1`)
 
 - **Automatic Device Discovery**:
     - Lists installed Android Virtual Devices (AVDs) via `emulator -list-avds`.
@@ -25,11 +25,18 @@ A fast, lightweight, keyboard-driven Terminal User Interface (TUI) for Android d
 - **Live Output Drawer**:
     - Real-time rolling command logs showing Gradle build output, boot statuses, and process notifications.
 
-### 2. Build & Gradle (F2) _(Upcoming)_
+### 2. Build & Gradle Sync (`F2`)
 
-- Run common Gradle tasks, view dependency trees, and inspect build artifacts.
+- **Dependency Syncing**: Run `./gradlew --refresh-dependencies help` to resolve and refresh project dependencies.
+- **Debug Build**: Run `./gradlew assembleDebug --console=plain`. Outputs the APK directly to `./app/build/outputs/apk/debug/app-debug.apk` (identically to Android Studio) and displays the resulting file path and size.
+- **Project Clean**: Run `./gradlew clean --console=plain`.
+- **Cancel Ongoing Tasks**: Press `[x]` to terminate a running Gradle task immediately.
+- **High-Performance Stream Viewport**:
+    - Real-time syntax-highlighted stdout/stderr stream (tasks in cyan, success in bold green, errors in red).
+    - Configurable auto-scrolling with `[a]` toggle and keyboard scrolling (`↑`/`↓`, `PgUp`/`PgDn`).
+    - Clear output buffer with `[l]`.
 
-### 3. Logs & Logcat (F3) _(Upcoming)_
+### 3. Logs & Logcat (`F3`) _(Upcoming)_
 
 - Real-time log streaming filtered by application package, PID, or log level.
 
@@ -57,6 +64,19 @@ A fast, lightweight, keyboard-driven Terminal User Interface (TUI) for Android d
 | `b`               | Running Targets | Build Debug APK & deploy to selected target                     |
 | `k`               | Running Targets | Stop selected emulator (`adb emu kill`)                         |
 | `R`               | Any             | Force refresh device and AVD lists                              |
+
+### Build Tab (`F2`)
+
+| Key             | Action                                                   |
+| --------------- | -------------------------------------------------------- |
+| `s`             | Run **Gradle Sync** (`--refresh-dependencies help`)      |
+| `b`             | Run **Assemble Debug** (`assembleDebug --console=plain`) |
+| `c`             | Run **Clean Project** (`clean --console=plain`)          |
+| `x`             | **Cancel / Stop** active Gradle task                     |
+| `l`             | **Clear** output log buffer                              |
+| `a`             | Toggle **Auto-scroll** (ON / OFF)                        |
+| `↑` / `↓`       | Scroll output viewport by 1 line                         |
+| `PgUp` / `PgDn` | Scroll output viewport by 15 lines                       |
 
 ---
 
@@ -90,7 +110,7 @@ cargo build --release
 
 ### Run
 
-Launch `ast` from inside any Android project root:
+Launch `ast` from inside any Android project root containing `./gradlew`:
 
 ```bash
 cargo run
