@@ -7,7 +7,7 @@
 The project is structured around three primary functional tabs:
 
 1. **Emulator & Devices (F1)**: Discovery, launching, controlling virtual devices (AVDs), USB-connected physical devices, and scrcpy mirroring for virtual devices.
-2. **Build & Gradle (F2)**: Dependency syncing, debug/release builds, Gradle tasks, and build output inspection.
+2. **Build & Gradle (F2)**: Dependency syncing, debug builds (`assembleDebug`), clean tasks, cancellation, and syntax-highlighted build output streaming.
 3. **Logs & Logcat (F3)**: Real-time application log streaming filtered by package name, PID, or log level.
 
 ---
@@ -18,6 +18,7 @@ The project is structured around three primary functional tabs:
 - **UI Framework**: [`ratatui`](https://crates.io/crates/ratatui) (v0.30+)
 - **Terminal Backend**: [`crossterm`](https://crates.io/crates/crossterm) (v0.29+)
 - **Async Runtime**: [`tokio`](https://crates.io/crates/tokio) (v1.53+) — for non-blocking sub-processes (`adb`, `emulator`, `gradlew`, `scrcpy`)
+- **CLI Parsing**: [`clap`](https://crates.io/crates/clap) (v4.6+, derive) — for CLI options (`-p / --project-path`)
 - **Embedded Terminal Widget**: [`tui-term`](https://crates.io/crates/tui-term) — for streaming command output and logs
 - **Error Handling**: [`color-eyre`](https://crates.io/crates/color-eyre)
 
@@ -41,7 +42,15 @@ The project is structured around three primary functional tabs:
 - All tab-specific keys are delegated to the active tab's handler module using a two-stage pattern:
     1. **Pure Key Mapping**: `(KeyCode, PaneFocus/State) -> Option<TabAction>`
     2. **Action Dispatcher**: `execute_action(action, state, tx)`
-- When adding new tabs (Build F2, Logs F3), implement `src/handler/build.rs` and `src/handler/logs.rs` respectively. Do NOT add nested `if-else` blocks in `main.rs`.
+- When adding new tabs, implement `src/handler/<tab>.rs`. Do NOT add nested `if-else` blocks in `main.rs`.
+
+### Project Root & Working Directory Management
+
+**Rule 3: All Gradle operations (`./gradlew`) execute relative to the configured project root.**
+
+- `ast` accepts an optional CLI flag: `-p` / `--project-path <DIR>`.
+- At startup, `ast` validates that the path exists and is a directory, canonicalizes it, switches the process working directory via `std::env::set_current_dir`, and stores it in `AppState.project_dir`.
+- Gradle tasks and APK lookup logic (`app/build/outputs/apk/debug/app-debug.apk`) execute relative to this root.
 
 ### Device Interaction Rules (Important Note)
 
@@ -52,25 +61,26 @@ The project is structured around three primary functional tabs:
 
 ```
 src/
-├── main.rs            # Entrypoint, terminal initialization, async event loop
-├── model.rs           # Core domain models (AvdInfo, DeviceTarget, TargetType, etc.)
-├── events.rs          # Channel event types (Key, Tick, DevicesRefreshed, ActionLog)
-├── app.rs             # Application state, navigation, active pane focus
+├── main.rs            # Entrypoint, CLI args, terminal initialization, async event loop
+├── model.rs           # Core domain models (AvdInfo, DeviceTarget, TargetType, GradleState, etc.)
+├── events.rs          # Channel event types (Key, Tick, DevicesRefreshed, GradleLogLine, etc.)
+├── app.rs             # Application state, project directory, navigation, active pane focus
 ├── handler/
 │   ├── mod.rs         # Handlers module declaration
 │   ├── emulator.rs    # Emulator tab key mapping & action execution
-│   ├── build.rs       # (Upcoming) Build tab key mapping & actions
+│   ├── build.rs       # Build tab key mapping & action execution
 │   └── logs.rs        # (Upcoming) Logs tab key mapping & actions
 ├── ui/
-│   ├── mod.rs         # Root layout (header, tabs, status bar)
+│   ├── mod.rs         # Root layout (header, project label, tabs, status bar)
 │   ├── emulator.rs    # Emulator & device management view (dual pane + drawer)
-│   ├── build.rs       # Gradle build view
+│   ├── build.rs       # Gradle build & sync view (viewport, status banner, syntax highlight)
 │   └── logs.rs        # Logcat stream view
 └── android/
     ├── mod.rs         # Android subsystem coordinator
     ├── discovery.rs   # Virtual device discovery & ADB device parsing
     ├── lifecycle.rs   # Headless emulator start, boot status polling, scrcpy, kill
-    └── deploy.rs      # Gradle build executor & ADB deployment
+    ├── deploy.rs      # APK deployment & Activity Manager launch
+    └── gradle.rs      # Gradle async runner, PID tracking, and cancellation
 ```
 
 ---
@@ -168,8 +178,10 @@ src/
 ## 5. Development & Testing Instructions
 
 - **Build**: `cargo build`
-- **Run**: `cargo run`
+- **Run Locally**: `cargo run -- -p /path/to/android/project`
+- **Install Globally**: `cargo install --path .` (installs to `~/.cargo/bin/ast`)
 - **Check**: `cargo check` / `cargo clippy`
+- **Test**: `cargo test`
 - **Prerequisites**:
     - `adb` and `emulator` must be in PATH or `$ANDROID_HOME` / `$ANDROID_SDK_ROOT`.
     - `scrcpy` optional but recommended for visual device display.

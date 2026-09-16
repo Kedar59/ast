@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use crate::model::{AvdInfo, DeviceTarget, GradleState, PaneFocus, ScreenType};
 
 #[derive(Debug)]
 pub struct AppState {
+    pub project_dir: PathBuf,
     pub screen_type: ScreenType,
     pub pane_focus: PaneFocus,
     pub installed_avds: Vec<AvdInfo>,
@@ -18,11 +20,19 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        Self::new(std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    }
+}
+
+impl AppState {
+    pub fn new(project_dir: PathBuf) -> Self {
         let mut logs = VecDeque::with_capacity(200);
         logs.push_back("Welcome to ast (Android Studio TUI).".to_string());
+        logs.push_back(format!("Project root: {}", project_dir.display()));
         logs.push_back("Discovering installed AVDs and connected devices...".to_string());
 
         Self {
+            project_dir,
             screen_type: ScreenType::Emu,
             pane_focus: PaneFocus::InstalledAvds,
             installed_avds: Vec::new(),
@@ -35,9 +45,7 @@ impl Default for AppState {
             gradle_state: GradleState::default(),
         }
     }
-}
 
-impl AppState {
     pub fn add_log(&mut self, line: String) {
         if self.status_logs.len() >= 200 {
             self.status_logs.pop_front();

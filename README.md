@@ -98,25 +98,47 @@ which adb emulator scrcpy
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Installation & Getting Started
 
-### Clone & Build
+### 1. Install Globally (Recommended)
+
+Install the binary directly into `~/.cargo/bin`:
 
 ```bash
 git clone https://github.com/your-username/ast.git
 cd ast
-cargo build --release
+cargo install --path .
 ```
 
-### Run
+### 2. Usage in Android Projects
 
-Launch `ast` from inside any Android project root containing `./gradlew`:
+You can run `ast` in two ways:
+
+#### A. From inside your Android project root:
 
 ```bash
-cargo run
+cd /path/to/your/android/project
+ast
 ```
 
-_(Or place the compiled binary in your `$PATH` and run `ast`)._
+#### B. From anywhere by passing the project path (`-p` / `--project-path`):
+
+```bash
+ast -p /path/to/your/android/project
+# or
+ast --project-path /home/user/AndroidStudioProjects/MyAwesomeApp
+```
+
+### CLI Options
+
+```
+Usage: ast [OPTIONS]
+
+Options:
+  -p, --project-path <PROJECT_PATH>  Path to Android project root containing gradlew [default: .]
+  -h, --help                         Print help
+  -V, --version                      Print version
+```
 
 ---
 

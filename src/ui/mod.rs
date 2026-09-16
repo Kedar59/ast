@@ -20,9 +20,17 @@ pub fn render_ui(frame: &mut Frame, app_state: &AppState) {
 
     let [top, tabs_area, main_content] = frame.area().layout(&layout);
 
+    let project_name = app_state
+        .project_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(".");
+
     let title = Line::from(vec![
         Span::from("Android Studio TUI (ast)").bold().cyan(),
-        Span::from("  [F1] Emulator  [F2] Build  [F3] Logs  |  [q/Esc] Quit"),
+        Span::from("  📁 "),
+        Span::from(project_name).yellow().bold(),
+        Span::from("  |  [F1] Emulator  [F2] Build  [F3] Logs  |  [q/Esc] Quit"),
     ]);
     frame.render_widget(title.centered(), top);
 

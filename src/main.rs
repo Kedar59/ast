@@ -5,8 +5,10 @@ pub mod handler;
 pub mod model;
 pub mod ui;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
+use clap::Parser;
 use color_eyre::eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
@@ -18,17 +20,36 @@ use crate::app::AppState;
 use crate::events::AppEvent;
 use crate::model::{ScreenType, TaskStatus};
 
+#[derive(Parser, Debug)]
+#[command(name = "ast", version, about = "Android Studio TUI")]
+pub struct Cli {
+    /// Path to Android project root containing gradlew (defaults to current directory)
+    #[arg(short = 'p', long = "project-path", default_value = ".")]
+    pub project_path: PathBuf,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
+    let cli = Cli::parse();
+
+    let project_dir = std::fs::canonicalize(&cli.project_path)
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to access project path '{}': {}", cli.project_path.display(), e))?;
+
+    if !project_dir.is_dir() {
+        return Err(color_eyre::eyre::eyre!("Specified project path '{}' is not a directory", project_dir.display()));
+    }
+
+    std::env::set_current_dir(&project_dir)?;
+
     let terminal = ratatui::init();
-    let result = run_app(terminal).await;
+    let result = run_app(terminal, project_dir).await;
     ratatui::restore();
     result
 }
 
-async fn run_app(mut terminal: DefaultTerminal) -> Result<()> {
-    let mut app_state = AppState::default();
+async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<()> {
+    let mut app_state = AppState::new(project_dir);
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(100);
 
     // Spawn background poller to discover AVDs and ADB targets
