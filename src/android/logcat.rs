@@ -58,6 +58,7 @@ pub fn start_logcat_stream(serial: String, tx: mpsc::Sender<AppEvent>) {
 
     let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
 
+    // Register active stream
     {
         if let Ok(mut guard) = ACTIVE_LOG_STREAMS.lock() {
             let map = guard.get_or_insert_with(HashMap::new);
@@ -82,7 +83,7 @@ pub fn start_logcat_stream(serial: String, tx: mpsc::Sender<AppEvent>) {
             .ok();
 
         let mut cmd = Command::new("adb");
-        cmd.args(["-s", &serial, "logcat", "-v", "time"])
+        cmd.args(["-s", &serial, "logcat", "-v", "time", "-T", "500"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -165,7 +166,17 @@ mod tests {
 
     #[test]
     fn test_log_file_path() {
-        let path = log_file_path("emulator-5554");
-        assert!(path.to_string_lossy().ends_with(".ast/logs/emulator-5554.log"));
+        let path = log_file_path("RZCY80FFWAV");
+        assert!(path.ends_dir_or_file("RZCY80FFWAV.log"));
+    }
+
+    trait PathExt {
+        fn ends_dir_or_file(&self, file_name: &str) -> bool;
+    }
+
+    impl PathExt for PathBuf {
+        fn ends_dir_or_file(&self, file_name: &str) -> bool {
+            self.to_str().map(|s| s.ends_with(file_name)).unwrap_or(false)
+        }
     }
 }

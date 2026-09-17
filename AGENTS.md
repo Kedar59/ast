@@ -6,9 +6,9 @@
 
 The project is structured around three primary functional tabs:
 
-1. **Emulator & Devices (F1)**: Discovery, launching, controlling virtual devices (AVDs), USB-connected physical devices, and scrcpy mirroring for virtual devices.
+1. **Emulator & Devices (F1)**: Discovery, launching, controlling virtual devices (AVDs), USB-connected physical devices, scrcpy mirroring for virtual devices, and one-key build & deploy with auto-launch.
 2. **Build & Gradle (F2)**: Dependency syncing, debug builds (`assembleDebug`), clean tasks, cancellation, and syntax-highlighted build output streaming.
-3. **Logs & Logcat (F3)**: Real-time application log streaming filtered by package name, PID, or log level.
+3. **Logs & Logcat (F3)**: Real-time multi-device application log streaming, disk persistence under `~/.ast/logs/`, package/PID filtering, and search navigation.
 
 ---
 
@@ -19,30 +19,33 @@ The project is structured around three primary functional tabs:
 - **Terminal Backend**: [`crossterm`](https://crates.io/crates/crossterm) (v0.29+)
 - **Async Runtime**: [`tokio`](https://crates.io/crates/tokio) (v1.53+) — for non-blocking sub-processes (`adb`, `emulator`, `gradlew`, `scrcpy`)
 - **CLI Parsing**: [`clap`](https://crates.io/crates/clap) (v4.6+, derive) — for CLI options (`-p / --project-path`)
-- **Embedded Terminal Widget**: [`tui-term`](https://crates.io/crates/tui-term) — for streaming command output and logs
 - **Error Handling**: [`color-eyre`](https://crates.io/crates/color-eyre)
 
 ---
 
 ## 3. Architecture & Design Principles
 
-### Non-Blocking Event Loop
+### Non-Blocking Event Loop & Channel Backpressure
 
 **Rule 1: Never execute blocking subprocesses on the main UI thread.**
 
-- Ratatui's event loop handles terminal redraws and keyboard inputs (`100ms` poll or event-driven).
-- Background operations (polling `adb devices`, querying `sys.boot_completed`, launching `emulator`, running `./gradlew`) MUST be executed asynchronously using `tokio::spawn` or background worker channels (`tokio::sync::mpsc`).
-- Communication between background tasks and the UI loop flows via an `AppEvent` channel (e.g. `AppEvent::DevicesRefreshed(Vec<Device>)`, `AppEvent::ActionProgress(String)`).
+- Ratatui's event loop handles terminal redraws and keyboard inputs (`crossterm::event::EventStream`).
+- Background operations (polling `adb devices`, querying `sys.boot_completed`, launching `emulator`, running `./gradlew`, streaming `adb logcat`) MUST be executed asynchronously using `tokio::spawn` or background worker channels (`tokio::sync::mpsc`).
+- High-throughput streams (such as `logcat` producing hundreds of lines/second) use a generously sized channel (`mpsc::channel(2000)`) and are drained in batches in `main.rs` to avoid blocking the sender and prevent unnecessary redraw loops.
+- Communication between background tasks and the UI loop flows via the `AppEvent` channel (e.g. `AppEvent::DevicesRefreshed`, `AppEvent::LogcatLine`, `AppEvent::AppPidResolved`).
 
 ### Context-Aware Key Mapping & Action Routing
 
 **Rule 2: Keep `main.rs` minimal. Isolate tab key-bindings and executions in `src/handler/<tab>.rs`.**
 
-- In `main.rs`, only global shortcuts (`q`, `Esc`, `F1`–`F3`) are handled globally.
+- In `main.rs`, only global shortcuts (`q`, `Esc`, `F1`–`F3`) and search modal input routing are handled globally.
 - All tab-specific keys are delegated to the active tab's handler module using a two-stage pattern:
-    1. **Pure Key Mapping**: `(KeyCode, PaneFocus/State) -> Option<TabAction>`
+    1. **Pure Key Mapping**: `(KeyCode, State/Mode) -> Option<TabAction>`
     2. **Action Dispatcher**: `execute_action(action, state, tx)`
-- When adding new tabs, implement `src/handler/<tab>.rs`. Do NOT add nested `if-else` blocks in `main.rs`.
+- Dedicated handlers:
+    - [`src/handler/emulator.rs`](src/handler/emulator.rs)
+    - [`src/handler/build.rs`](src/handler/build.rs)
+    - [`src/handler/logs.rs`](src/handler/logs.rs)
 
 ### Project Root & Working Directory Management
 
@@ -52,7 +55,16 @@ The project is structured around three primary functional tabs:
 - At startup, `ast` validates that the path exists and is a directory, canonicalizes it, switches the process working directory via `std::env::set_current_dir`, and stores it in `AppState.project_dir`.
 - Gradle tasks and APK lookup logic (`app/build/outputs/apk/debug/app-debug.apk`) execute relative to this root.
 
-### Device Interaction Rules (Important Note)
+### Logcat Management & Multi-Device Isolation
+
+**Rule 4: Keep logcat sessions distinct, persistent, and bounded.**
+
+- **Multi-Device Tabs**: `DeviceLogSession` tracks serial, display name, in-memory lines (up to 10,000 with oldest-drain), scroll position, search query, and package PID.
+- **Disk Persistence**: Streaming logs append to `~/.ast/logs/<serial>.log`. On startup or device discovery, existing sessions pre-hydrate their recent 1,000 lines from disk.
+- **Tailing Stream**: Spawning `adb -s <serial> logcat -v time -T 500` ensures initial logs start with recent events instead of loading hundreds of thousands of historical log lines from device flash.
+- **Dynamic PID Tracking**: Applications often launch asynchronously. `build_and_deploy_apk` polls `adb shell pidof <package>` and dispatches `AppEvent::AppPidResolved`, enabling instantaneous filtering on `Tag(PID):` and threadtime signatures.
+
+### Device Interaction Rules
 
 - **Virtual Emulators**: Run headless (`-no-window -no-audio -no-boot-anim -gpu host`). Use `scrcpy` to display their screen and control them with mouse and keyboard (`--mouse=sdk --keyboard=sdk`).
 - **Physical USB Devices**: Used by hand directly. Screen mirroring via `scrcpy` is **not** required and should not be offered or triggered for physical devices.
@@ -61,25 +73,26 @@ The project is structured around three primary functional tabs:
 
 ```
 src/
-├── main.rs            # Entrypoint, CLI args, terminal initialization, async event loop
-├── model.rs           # Core domain models (AvdInfo, DeviceTarget, TargetType, GradleState, etc.)
-├── events.rs          # Channel event types (Key, Tick, DevicesRefreshed, GradleLogLine, etc.)
-├── app.rs             # Application state, project directory, navigation, active pane focus
+├── main.rs            # Entrypoint, CLI args, terminal initialization, async event loop & line batching
+├── model.rs           # Core domain models (AvdInfo, DeviceTarget, DeviceLogSession, LogState, GradleState)
+├── events.rs          # AppEvent enum (DevicesRefreshed, LogcatLine, AppPidResolved, GradleTaskFinished, etc.)
+├── app.rs             # Application state, log session management, device tracking, scroll operations
 ├── handler/
 │   ├── mod.rs         # Handlers module declaration
 │   ├── emulator.rs    # Emulator tab key mapping & action execution
 │   ├── build.rs       # Build tab key mapping & action execution
-│   └── logs.rs        # (Upcoming) Logs tab key mapping & actions
+│   └── logs.rs        # Logs tab key mapping (normal/edit modes) & action execution
 ├── ui/
-│   ├── mod.rs         # Root layout (header, project label, tabs, status bar)
+│   ├── mod.rs         # Root layout (header, project label, tab bar, footer status)
 │   ├── emulator.rs    # Emulator & device management view (dual pane + drawer)
 │   ├── build.rs       # Gradle build & sync view (viewport, status banner, syntax highlight)
-│   └── logs.rs        # Logcat stream view
+│   └── logs.rs        # Device log tabs, search & filter bar, syntax-highlighted logcat viewport
 └── android/
     ├── mod.rs         # Android subsystem coordinator
     ├── discovery.rs   # Virtual device discovery & ADB device parsing
     ├── lifecycle.rs   # Headless emulator start, boot status polling, scrcpy, kill
-    ├── deploy.rs      # APK deployment & Activity Manager launch
+    ├── deploy.rs      # Package name detection, build/install, launch_app_on_target, get_package_pid
+    ├── logcat.rs      # Multi-device streaming manager, stop/start channels, file persistence
     └── gradle.rs      # Gradle async runner, PID tracking, and cancellation
 ```
 
@@ -90,45 +103,28 @@ src/
 ### A. Device Discovery
 
 - **Installed AVDs**:
-
     ```bash
     emulator -list-avds
     ```
-
-    Returns newline-delimited list of AVD names (e.g. `Pixel_6a`, `medium_phone`).
-
 - **Active Devices (USB & Running Emulators)**:
     ```bash
     adb devices -l
     ```
-    Returns attached devices with format:
-    `<serial> <state> [usb:<bus-port>] [product:<name>] [model:<name>] [device:<name>] [transport_id:<id>]`
-    _Emulators_ typically have serial `emulator-<port>` (e.g., `emulator-5554`) or product/device with sdk tags.
-    _Physical USB devices_ include `usb:<port>` in metadata.
 
 ### B. Virtual Device Lifecycle
 
 - **Launch Headless (with Host GPU acceleration)**:
-
     ```bash
     emulator -avd <AVD_NAME> -no-window -no-audio -no-boot-anim -gpu host
     ```
-
-    Spawn detached as a background process.
-
 - **Check Boot Completion**:
-
     ```bash
     adb -s <SERIAL> shell getprop sys.boot_completed
     ```
-
-    Returns `1` when boot is finished. Poll periodically after launching until `1` before dispatching APK installs.
-
 - **Stop / Kill Emulator**:
     ```bash
     adb -s <SERIAL> emu kill
     ```
-    Fallback if unresponsive: signal termination (`SIGTERM`/`SIGKILL`) on PID.
 
 ### C. Scrcpy Display Mirroring (Virtual Devices Only)
 
@@ -136,7 +132,6 @@ src/
     ```bash
     scrcpy -s <SERIAL> --window-title "<TITLE>" --stay-awake --mouse=sdk --keyboard=sdk
     ```
-    Spawn detached in background. Note: ONLY applicable for emulator devices. Physical phones are operated directly by hand.
 
 ### D. Build & Deployment
 
@@ -152,13 +147,18 @@ src/
     ```bash
     ./gradlew installDebug --console=plain
     ```
-- **Launch App via Activity Manager**:
+- **Resolve Launcher & Launch App**:
     ```bash
+    adb -s <SERIAL> shell cmd package resolve-activity --brief <PACKAGE>
     adb -s <SERIAL> shell am start -n <PACKAGE>/<ACTIVITY> -a android.intent.action.MAIN -c android.intent.category.LAUNCHER
     ```
-- **Stop App**:
+    _Fallback_:
     ```bash
-    adb -s <SERIAL> shell am force-stop <PACKAGE>
+    adb -s <SERIAL> shell monkey -p <PACKAGE> -c android.intent.category.LAUNCHER 1
+    ```
+- **Query Installed Version**:
+    ```bash
+    adb -s <SERIAL> shell dumpsys package <PACKAGE>
     ```
 
 ### E. Logcat & PID Resolution
@@ -169,19 +169,17 @@ src/
     ```
 - **Stream Logs**:
     ```bash
-    adb -s <SERIAL> logcat -v time --pid=<PID>
+    adb -s <SERIAL> logcat -v time -T 500
     ```
-    Stream continuously via asynchronous stdout piping into a ring buffer or `tui-term`.
+    Piped asynchronously to `~/.ast/logs/<serial>.log` and batched to the TUI event channel.
 
 ---
 
 ## 5. Development & Testing Instructions
 
 - **Build**: `cargo build`
+- **Release Build**: `cargo build --release`
 - **Run Locally**: `cargo run -- -p /path/to/android/project`
 - **Install Globally**: `cargo install --path .` (installs to `~/.cargo/bin/ast`)
 - **Check**: `cargo check` / `cargo clippy`
-- **Test**: `cargo test`
-- **Prerequisites**:
-    - `adb` and `emulator` must be in PATH or `$ANDROID_HOME` / `$ANDROID_SDK_ROOT`.
-    - `scrcpy` optional but recommended for visual device display.
+- **Test**: `cargo test` (all 20+ unit tests cover discovery, gradle scrolling, log sessions, logcat filtering, and PID resolution)

@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
 
 async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<()> {
     let mut app_state = AppState::new(project_dir);
-    let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(100);
+    let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(2000);
 
     // Spawn background poller to discover AVDs and ADB targets
     let poller_tx = event_tx.clone();
@@ -128,7 +128,12 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                     AppEvent::GradleTaskCancelled => {
                         app_state.gradle_state.status = TaskStatus::Cancelled;
                     }
-                    AppEvent::ApkDeployed { serial } => {
+                    AppEvent::ApkDeployed {
+                        serial,
+                        package_name,
+                        version_name,
+                        version_code,
+                    } => {
                         app_state.screen_type = ScreenType::Logs;
                         app_state.select_log_device(&serial);
                         let dev_name = app_state
@@ -137,12 +142,110 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                             .find(|d| d.serial == serial)
                             .map(|d| d.display_name())
                             .unwrap_or_else(|| serial.clone());
-                        app_state.get_or_create_log_session(&serial, &dev_name);
+                        let session = app_state.get_or_create_log_session(&serial, &dev_name);
+
+                        // If package was detected, set filter to package:<pkg> if query is currently empty
+                        if let Some(ref pkg) = package_name {
+                            session.app_package = Some(pkg.clone());
+                            if session.search_query.is_empty() {
+                                session.search_query = format!("package:{pkg}");
+                            }
+                        }
+
+                        // Polling task to resolve app PID after launch so logs can filter by PID
+                        if let Some(ref pkg) = package_name {
+                            let tx = event_tx.clone();
+                            let s = serial.clone();
+                            let p = pkg.clone();
+                            tokio::spawn(async move {
+                                for attempt in 0..10 {
+                                    tokio::time::sleep(Duration::from_millis(if attempt == 0 { 200 } else { 500 })).await;
+                                    if let Some(pid) = crate::android::deploy::get_package_pid(&s, &p).await {
+                                        let _ = tx
+                                            .send(AppEvent::AppPidResolved {
+                                                serial: s.clone(),
+                                                package_name: p.clone(),
+                                                pid,
+                                            })
+                                            .await;
+                                        break;
+                                    }
+                                }
+                            });
+                        }
+
                         start_logcat_stream(serial.clone(), event_tx.clone());
-                        app_state.add_log(format!("APK deployed to '{serial}'. Streaming logcat in Logs tab."));
+
+                        let ver_label = match (version_name, version_code) {
+                            (Some(v), Some(c)) => format!(" (v{v}, code {c})"),
+                            (Some(v), None) => format!(" (v{v})"),
+                            _ => String::new(),
+                        };
+                        app_state.add_log(format!(
+                            "APK deployed{ver_label} to '{serial}'. Streaming logcat in Logs tab."
+                        ));
+                    }
+                    AppEvent::AppPidResolved { serial, package_name, pid } => {
+                        if let Some(session) = app_state.log_state.sessions.get_mut(&serial) {
+                            session.app_pid = Some(pid);
+                            // Auto-scroll to bottom of newly matched lines
+                            if session.auto_scroll {
+                                session.scroll_offset = session.filtered_lines().len();
+                            }
+                        }
+                        app_state.add_log(format!("Active process for '{package_name}' attached [PID: {pid}]."));
                     }
                     AppEvent::LogcatLine { serial, line } => {
+                        let is_active_device = app_state
+                            .log_state
+                            .active_device_serial
+                            .as_deref()
+                            == Some(&serial);
+
                         app_state.append_logcat_line(&serial, line);
+
+                        // Batch drain up to 200 pending lines so we don't redraw per individual line
+                        let mut drained = 0;
+                        while drained < 200 {
+                            match event_rx.try_recv() {
+                                Ok(AppEvent::LogcatLine { serial: s, line: l }) => {
+                                    app_state.append_logcat_line(&s, l);
+                                    drained += 1;
+                                }
+                                Ok(other_evt) => {
+                                    match other_evt {
+                                        AppEvent::DevicesRefreshed { avds, devices } => {
+                                            app_state.update_devices(avds, devices);
+                                        }
+                                        AppEvent::StatusLog(msg) => {
+                                            app_state.add_log(msg);
+                                        }
+                                        AppEvent::AppPidResolved { serial: s, package_name, pid } => {
+                                            if let Some(session) = app_state.log_state.sessions.get_mut(&s) {
+                                                session.app_pid = Some(pid);
+                                                if session.auto_scroll {
+                                                    session.scroll_offset = session.filtered_lines().len();
+                                                }
+                                            }
+                                            app_state.add_log(format!("Active process for '{package_name}' attached [PID: {pid}]."));
+                                        }
+                                        AppEvent::LogcatStreamStatus { serial: s, is_streaming } => {
+                                            if let Some(session) = app_state.log_state.sessions.get_mut(&s) {
+                                                session.is_streaming = is_streaming;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                    break;
+                                }
+                                Err(_) => break,
+                            }
+                        }
+
+                        // Only redraw if this is the active log tab and screen is Logs
+                        if !is_active_device || app_state.screen_type != ScreenType::Logs {
+                            continue;
+                        }
                     }
                     AppEvent::LogcatStreamStatus { serial, is_streaming } => {
                         if let Some(session) = app_state.log_state.sessions.get_mut(&serial) {

@@ -91,7 +91,7 @@ fn render_search_bar(frame: &mut Frame, area: Rect, app_state: &AppState) {
         (
             Style::default().fg(Color::Yellow).bold(),
             Span::styled(
-                " Search & Filter [INPUT MODE: Type query | Enter: Apply | Esc: Cancel] ",
+                " Search & Filter [INPUT MODE: Type query or package:<name> | Enter: Apply | Esc: Cancel] ",
                 Style::default().fg(Color::Yellow).bold(),
             ),
         )
@@ -101,7 +101,7 @@ fn render_search_bar(frame: &mut Frame, area: Rect, app_state: &AppState) {
         (
             Style::default().fg(color),
             Span::styled(
-                " Search & Filter [/ to Edit | c to Clear] ",
+                " Search & Filter [/ to Edit | c to Clear | package:<name> filter supported] ",
                 Style::default().fg(Color::White),
             ),
         )
@@ -124,14 +124,22 @@ fn render_search_bar(frame: &mut Frame, area: Rect, app_state: &AppState) {
             ])
         } else if sess.search_query.is_empty() {
             Line::from(Span::styled(
-                "No active filter (showing all logs). Press [/] to search or filter.",
+                "No active filter (showing all logs). Press [/] to search or filter (e.g. package:com.example.flocky).",
                 Style::default().fg(Color::DarkGray),
             ))
         } else {
+            let pid_badge = if let Some(pid) = sess.app_pid {
+                format!(" [PID: {pid}]")
+            } else {
+                String::new()
+            };
+
             Line::from(vec![
                 Span::styled("Active Filter: \"", Style::default().fg(Color::White)),
                 Span::styled(&sess.search_query, Style::default().fg(Color::Yellow).bold()),
-                Span::styled("\" ", Style::default().fg(Color::White)),
+                Span::styled("\"", Style::default().fg(Color::White)),
+                Span::styled(pid_badge, Style::default().fg(Color::Magenta).bold()),
+                Span::styled("  ", Style::default()),
                 Span::styled(
                     format!("(Matched {filtered_count} / {total_lines} lines)"),
                     Style::default().fg(Color::Green).bold(),

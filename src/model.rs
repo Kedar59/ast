@@ -86,6 +86,8 @@ pub struct GradleState {
     pub status: TaskStatus,
     pub active_task_name: Option<String>,
     pub apk_path: Option<String>,
+    pub available_tasks: Vec<(&'static str, &'static str, &'static str)>,
+    pub selected_task_index: usize,
 }
 
 impl Default for GradleState {
@@ -97,6 +99,14 @@ impl Default for GradleState {
             status: TaskStatus::Idle,
             active_task_name: None,
             apk_path: None,
+            available_tasks: vec![
+                ("assembleDebug", "Build Debug APK", "./gradlew assembleDebug --console=plain"),
+                ("installDebug", "Install Debug APK to target", "./gradlew installDebug --console=plain"),
+                ("testDebugUnitTest", "Run Unit Tests", "./gradlew testDebugUnitTest --console=plain"),
+                ("clean", "Clean build artifacts", "./gradlew clean --console=plain"),
+                ("syncDependencies", "Refresh Gradle Dependencies", "./gradlew --refresh-dependencies help --console=plain"),
+            ],
+            selected_task_index: 0,
         }
     }
 }
@@ -118,6 +128,8 @@ pub struct DeviceLogSession {
     pub auto_scroll: bool,
     pub search_query: String,
     pub log_file_path: PathBuf,
+    pub app_package: Option<String>,
+    pub app_pid: Option<u32>,
 }
 
 impl DeviceLogSession {
@@ -131,20 +143,61 @@ impl DeviceLogSession {
             auto_scroll: true,
             search_query: String::new(),
             log_file_path,
+            app_package: None,
+            app_pid: None,
         }
     }
 
     pub fn filtered_lines(&self) -> Vec<&str> {
-        if self.search_query.is_empty() {
-            self.lines.iter().map(|s| s.as_str()).collect()
-        } else {
-            let q = self.search_query.to_lowercase();
-            self.lines
-                .iter()
-                .filter(|line| line.to_lowercase().contains(&q))
-                .map(|s| s.as_str())
-                .collect()
+        let query = self.search_query.trim();
+        if query.is_empty() {
+            return self.lines.iter().map(|s| s.as_str()).collect();
         }
+
+        // Support package prefix filter: package:<pkg_name>
+        if let Some(target_pkg) = query.strip_prefix("package:") {
+            let pkg = target_pkg.trim().to_lowercase();
+            let pid_match = self.app_pid.map(|p| p.to_string());
+
+            return self
+                .lines
+                .iter()
+                .filter(|line| {
+                    let lower = line.to_lowercase();
+                    // Match package name in logcat line
+                    if lower.contains(&pkg) {
+                        return true;
+                    }
+                    // Match resolved PID if available
+                    if let Some(ref pid) = pid_match {
+                        // Check standard Android logcat PID patterns:
+                        // 1. "time" format: "Tag(28083):" or "Tag( 1049):"
+                        let tag_pid_tight = format!("({pid}):");
+                        let tag_pid_space = format!("( {pid}):");
+                        let tag_pid_open = format!("({pid})");
+                        // 2. "threadtime" / "brief" format: " 28083 "
+                        let space_pid = format!(" {pid} ");
+
+                        if line.contains(&tag_pid_tight)
+                            || line.contains(&tag_pid_space)
+                            || line.contains(&tag_pid_open)
+                            || line.contains(&space_pid)
+                        {
+                            return true;
+                        }
+                    }
+                    false
+                })
+                .map(|s| s.as_str())
+                .collect();
+        }
+
+        let q = query.to_lowercase();
+        self.lines
+            .iter()
+            .filter(|line| line.to_lowercase().contains(&q))
+            .map(|s| s.as_str())
+            .collect()
     }
 }
 
@@ -153,4 +206,48 @@ pub struct LogState {
     pub active_device_serial: Option<String>,
     pub sessions: HashMap<String, DeviceLogSession>,
     pub search_mode: SearchMode,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_package_filter_with_text() {
+        let mut session = DeviceLogSession::new(
+            "emulator-5554".into(),
+            "Pixel".into(),
+            PathBuf::from("/tmp/test.log"),
+        );
+        session.lines = vec![
+            "09-17 23:00:00.001 1028 1028 D wtasd : sar_limit 1396".into(),
+            "09-17 23:00:01.002 25333 25333 I ActivityTaskManager: Start proc com.example.flocky for activity".into(),
+            "09-17 23:00:02.003 1191 1523 I SemWifi: scan done".into(),
+        ];
+
+        session.search_query = "package:com.example.flocky".into();
+        let matches = session.filtered_lines();
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].contains("com.example.flocky"));
+    }
+
+    #[test]
+    fn test_package_filter_with_pid_time_format() {
+        let mut session = DeviceLogSession::new(
+            "emulator-5554".into(),
+            "Pixel".into(),
+            PathBuf::from("/tmp/test.log"),
+        );
+        session.app_pid = Some(28083);
+        session.lines = vec![
+            "09-17 23:22:28.344 D/BoundBrokerSvc( 8396): onUnbind".into(),
+            "09-17 23:22:41.679 I/LocationManager(28083): >>> NEW GPS LOCK".into(),
+            "09-17 23:22:42.000 D/UsbStatsMonitor( 1191): 0 0 0 0".into(),
+        ];
+
+        session.search_query = "package:com.example.flocky".into();
+        let matches = session.filtered_lines();
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].contains("LocationManager(28083)"));
+    }
 }

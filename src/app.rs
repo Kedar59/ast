@@ -440,7 +440,7 @@ mod tests {
         let mut state = AppState::default();
         let devices = vec![
             DeviceTarget {
-                serial: "emulator-5554".into(),
+                serial: "mock-emu-001".into(),
                 state: "device".into(),
                 target_type: TargetType::Emulator,
                 product: None,
@@ -450,7 +450,7 @@ mod tests {
                 boot_completed: true,
             },
             DeviceTarget {
-                serial: "RZCY80FFWAV".into(),
+                serial: "mock-phone-002".into(),
                 state: "device".into(),
                 target_type: TargetType::UsbPhone,
                 product: None,
@@ -462,35 +462,35 @@ mod tests {
         ];
         state.update_devices(vec![], devices);
 
-        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("emulator-5554"));
+        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("mock-emu-001"));
 
         // Append logs to emulator
-        state.append_logcat_line("emulator-5554", "E/Test: Emulator log 1".into());
-        state.append_logcat_line("emulator-5554", "I/Test: Emulator log 2".into());
+        state.append_logcat_line("mock-emu-001", "E/Test: Emulator log 1".into());
+        state.append_logcat_line("mock-emu-001", "I/Test: Emulator log 2".into());
 
         // Append logs to physical phone
-        state.append_logcat_line("RZCY80FFWAV", "D/Test: Phone log 1".into());
+        state.append_logcat_line("mock-phone-002", "D/Test: Phone log 1".into());
 
         // Switch to physical phone
         state.select_next_log_device();
-        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("RZCY80FFWAV"));
+        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("mock-phone-002"));
         assert_eq!(state.active_log_session().unwrap().lines.len(), 1);
 
         // Switch back to emulator - verify preservation
         state.select_prev_log_device();
-        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("emulator-5554"));
+        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("mock-emu-001"));
         assert_eq!(state.active_log_session().unwrap().lines.len(), 2);
     }
 
     #[test]
     fn test_log_search_filter() {
         let mut state = AppState::default();
-        state.get_or_create_log_session("emulator-5554", "Pixel");
-        state.select_log_device("emulator-5554");
+        state.get_or_create_log_session("mock-device-filter", "Pixel");
+        state.select_log_device("mock-device-filter");
 
-        state.append_logcat_line("emulator-5554", "09-17 12:00:00.001 123 456 D App: Starting...".into());
-        state.append_logcat_line("emulator-5554", "09-17 12:00:01.002 123 456 E Crash: FatalException occurred".into());
-        state.append_logcat_line("emulator-5554", "09-17 12:00:02.003 123 456 I App: Shutdown".into());
+        state.append_logcat_line("mock-device-filter", "09-17 12:00:00.001 123 456 D App: Starting...".into());
+        state.append_logcat_line("mock-device-filter", "09-17 12:00:01.002 123 456 E Crash: FatalException occurred".into());
+        state.append_logcat_line("mock-device-filter", "09-17 12:00:02.003 123 456 I App: Shutdown".into());
 
         let session = state.active_log_session().unwrap();
         assert_eq!(session.filtered_lines().len(), 3);

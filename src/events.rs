@@ -27,6 +27,14 @@ pub enum AppEvent {
     GradleTaskCancelled,
     ApkDeployed {
         serial: String,
+        package_name: Option<String>,
+        version_name: Option<String>,
+        version_code: Option<String>,
+    },
+    AppPidResolved {
+        serial: String,
+        package_name: String,
+        pid: u32,
     },
     LogcatLine {
         serial: String,
