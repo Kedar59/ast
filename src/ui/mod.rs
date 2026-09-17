@@ -1,10 +1,11 @@
 pub mod build;
 pub mod emulator;
+pub mod logs;
 
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Tabs};
+use ratatui::widgets::Tabs;
 use ratatui::{symbols, Frame};
 
 use crate::app::AppState;
@@ -39,7 +40,7 @@ pub fn render_ui(frame: &mut Frame, app_state: &AppState) {
     match app_state.screen_type {
         ScreenType::Emu => emulator::render_emulator_tab(frame, main_content, app_state),
         ScreenType::Build => build::render_build_tab(frame, main_content, app_state),
-        ScreenType::Logs => render_placeholder(frame, main_content, "Logs and Logcat Screen (F3)"),
+        ScreenType::Logs => logs::render_logs_tab(frame, main_content, app_state),
     }
 }
 
@@ -57,11 +58,4 @@ fn render_tabs(frame: &mut Frame, area: Rect, app_state: &AppState) {
     .divider(symbols::DOT)
     .padding(" ", " ");
     frame.render_widget(tabs, area);
-}
-
-fn render_placeholder(frame: &mut Frame, area: Rect, text: &str) {
-    let block = Paragraph::new(text)
-        .alignment(Alignment::Center)
-        .block(Block::bordered());
-    frame.render_widget(block, area);
 }

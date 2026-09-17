@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use crate::model::{AvdInfo, DeviceTarget, GradleState, PaneFocus, ScreenType};
+use crate::model::{
+    AvdInfo, DeviceLogSession, DeviceTarget, GradleState, LogState, PaneFocus, ScreenType,
+};
 
 #[derive(Debug)]
 pub struct AppState {
@@ -16,6 +18,7 @@ pub struct AppState {
     pub is_busy: bool,
     pub current_action: Option<String>,
     pub gradle_state: GradleState,
+    pub log_state: LogState,
 }
 
 impl Default for AppState {
@@ -43,6 +46,7 @@ impl AppState {
             is_busy: false,
             current_action: None,
             gradle_state: GradleState::default(),
+            log_state: LogState::default(),
         }
     }
 
@@ -87,6 +91,171 @@ impl AppState {
         self.gradle_state.auto_scroll = true;
         self.gradle_state.apk_path = None;
     }
+
+    // --- Logcat State Management ---
+
+    pub fn log_file_path_for_serial(serial: &str) -> PathBuf {
+        crate::android::logcat::log_file_path(serial)
+    }
+
+    pub fn get_or_create_log_session(
+        &mut self,
+        serial: &str,
+        display_name: &str,
+    ) -> &mut DeviceLogSession {
+        if !self.log_state.sessions.contains_key(serial) {
+            let path = Self::log_file_path_for_serial(serial);
+            let mut session = DeviceLogSession::new(serial.to_string(), display_name.to_string(), path.clone());
+            // Pre-hydrate existing log lines from disk if file exists
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                let start_idx = lines.len().saturating_sub(1000);
+                session.lines = lines[start_idx..].to_vec();
+                session.scroll_offset = session.lines.len();
+            }
+            self.log_state.sessions.insert(serial.to_string(), session);
+        }
+
+        let session = self.log_state.sessions.get_mut(serial).unwrap();
+        if !display_name.is_empty() {
+            session.display_name = display_name.to_string();
+        }
+        session
+    }
+
+    pub fn active_log_session(&self) -> Option<&DeviceLogSession> {
+        self.log_state
+            .active_device_serial
+            .as_ref()
+            .and_then(|s| self.log_state.sessions.get(s))
+    }
+
+    pub fn active_log_session_mut(&mut self) -> Option<&mut DeviceLogSession> {
+        let serial = self.log_state.active_device_serial.clone()?;
+        self.log_state.sessions.get_mut(&serial)
+    }
+
+    pub fn append_logcat_line(&mut self, serial: &str, line: String) {
+        let session = self.get_or_create_log_session(serial, "");
+        session.lines.push(line);
+        if session.lines.len() > 10_000 {
+            session.lines.drain(0..1_000);
+        }
+        if session.auto_scroll {
+            let total_filtered = session.filtered_lines().len();
+            session.scroll_offset = total_filtered;
+        }
+    }
+
+    pub fn select_log_device(&mut self, serial: &str) {
+        self.log_state.active_device_serial = Some(serial.to_string());
+    }
+
+    pub fn active_log_device_index(&self) -> usize {
+        if let Some(ref active) = self.log_state.active_device_serial {
+            self.running_devices
+                .iter()
+                .position(|d| &d.serial == active)
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    pub fn select_next_log_device(&mut self) {
+        if self.running_devices.is_empty() {
+            return;
+        }
+        let current_idx = self.active_log_device_index();
+        let next_idx = (current_idx + 1) % self.running_devices.len();
+        let next_serial = self.running_devices[next_idx].serial.clone();
+        let next_name = self.running_devices[next_idx].display_name();
+        self.get_or_create_log_session(&next_serial, &next_name);
+        self.select_log_device(&next_serial);
+    }
+
+    pub fn select_prev_log_device(&mut self) {
+        if self.running_devices.is_empty() {
+            return;
+        }
+        let current_idx = self.active_log_device_index();
+        let prev_idx = if current_idx == 0 {
+            self.running_devices.len().saturating_sub(1)
+        } else {
+            current_idx - 1
+        };
+        let prev_serial = self.running_devices[prev_idx].serial.clone();
+        let prev_name = self.running_devices[prev_idx].display_name();
+        self.get_or_create_log_session(&prev_serial, &prev_name);
+        self.select_log_device(&prev_serial);
+    }
+
+    pub fn select_log_device_by_index(&mut self, idx: usize) {
+        if let Some(dev) = self.running_devices.get(idx) {
+            let serial = dev.serial.clone();
+            let name = dev.display_name();
+            self.get_or_create_log_session(&serial, &name);
+            self.select_log_device(&serial);
+        }
+    }
+
+    pub fn scroll_logs_up(&mut self, count: usize) {
+        if let Some(session) = self.active_log_session_mut() {
+            session.auto_scroll = false;
+            session.scroll_offset = session.scroll_offset.saturating_sub(count);
+        }
+    }
+
+    pub fn scroll_logs_down(&mut self, count: usize) {
+        if let Some(session) = self.active_log_session_mut() {
+            let total = session.filtered_lines().len();
+            session.scroll_offset = (session.scroll_offset + count).min(total);
+            if session.scroll_offset >= total {
+                session.auto_scroll = true;
+            }
+        }
+    }
+
+    pub fn scroll_logs_top(&mut self) {
+        if let Some(session) = self.active_log_session_mut() {
+            session.auto_scroll = false;
+            session.scroll_offset = 0;
+        }
+    }
+
+    pub fn scroll_logs_bottom(&mut self) {
+        if let Some(session) = self.active_log_session_mut() {
+            session.auto_scroll = true;
+            session.scroll_offset = session.filtered_lines().len();
+        }
+    }
+
+    pub fn toggle_logs_auto_scroll(&mut self) {
+        if let Some(session) = self.active_log_session_mut() {
+            session.auto_scroll = !session.auto_scroll;
+            if session.auto_scroll {
+                session.scroll_offset = session.filtered_lines().len();
+            }
+        }
+    }
+
+    pub fn clear_active_logs(&mut self) {
+        if let Some(session) = self.active_log_session_mut() {
+            session.lines.clear();
+            session.scroll_offset = 0;
+            session.auto_scroll = true;
+        }
+    }
+
+    pub fn update_search_query(&mut self, query: String) {
+        if let Some(session) = self.active_log_session_mut() {
+            session.search_query = query;
+            let total = session.filtered_lines().len();
+            session.scroll_offset = total;
+        }
+    }
+
+    // --- Emulator & Device Navigation ---
 
     pub fn select_next(&mut self) {
         match self.pane_focus {
@@ -152,6 +321,21 @@ impl AppState {
                     || d.product.as_ref().is_some_and(|p| p.contains(&avd.name))
             });
             avd.is_running = is_running;
+        }
+
+        // Initialize log sessions for newly discovered devices
+        for dev in &devices {
+            let serial = &dev.serial;
+            let display_name = dev.display_name();
+            self.get_or_create_log_session(serial, &display_name);
+        }
+
+        // If active log device is None or no longer valid, default to the first available device
+        if (self.log_state.active_device_serial.is_none()
+            || !devices.iter().any(|d| Some(&d.serial) == self.log_state.active_device_serial.as_ref()))
+            && !devices.is_empty()
+        {
+            self.log_state.active_device_serial = Some(devices[0].serial.clone());
         }
 
         self.installed_avds = avds;
@@ -249,5 +433,71 @@ mod tests {
         state.scroll_gradle_down(10);
         assert_eq!(state.gradle_state.scroll_offset, 50);
         assert!(state.gradle_state.auto_scroll);
+    }
+
+    #[test]
+    fn test_log_sessions_and_persistence() {
+        let mut state = AppState::default();
+        let devices = vec![
+            DeviceTarget {
+                serial: "emulator-5554".into(),
+                state: "device".into(),
+                target_type: TargetType::Emulator,
+                product: None,
+                model: Some("Pixel_6a".into()),
+                device: None,
+                transport_id: None,
+                boot_completed: true,
+            },
+            DeviceTarget {
+                serial: "RZCY80FFWAV".into(),
+                state: "device".into(),
+                target_type: TargetType::UsbPhone,
+                product: None,
+                model: Some("Galaxy S21".into()),
+                device: None,
+                transport_id: None,
+                boot_completed: true,
+            },
+        ];
+        state.update_devices(vec![], devices);
+
+        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("emulator-5554"));
+
+        // Append logs to emulator
+        state.append_logcat_line("emulator-5554", "E/Test: Emulator log 1".into());
+        state.append_logcat_line("emulator-5554", "I/Test: Emulator log 2".into());
+
+        // Append logs to physical phone
+        state.append_logcat_line("RZCY80FFWAV", "D/Test: Phone log 1".into());
+
+        // Switch to physical phone
+        state.select_next_log_device();
+        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("RZCY80FFWAV"));
+        assert_eq!(state.active_log_session().unwrap().lines.len(), 1);
+
+        // Switch back to emulator - verify preservation
+        state.select_prev_log_device();
+        assert_eq!(state.log_state.active_device_serial.as_deref(), Some("emulator-5554"));
+        assert_eq!(state.active_log_session().unwrap().lines.len(), 2);
+    }
+
+    #[test]
+    fn test_log_search_filter() {
+        let mut state = AppState::default();
+        state.get_or_create_log_session("emulator-5554", "Pixel");
+        state.select_log_device("emulator-5554");
+
+        state.append_logcat_line("emulator-5554", "09-17 12:00:00.001 123 456 D App: Starting...".into());
+        state.append_logcat_line("emulator-5554", "09-17 12:00:01.002 123 456 E Crash: FatalException occurred".into());
+        state.append_logcat_line("emulator-5554", "09-17 12:00:02.003 123 456 I App: Shutdown".into());
+
+        let session = state.active_log_session().unwrap();
+        assert_eq!(session.filtered_lines().len(), 3);
+
+        state.update_search_query("Crash".into());
+        let session = state.active_log_session().unwrap();
+        assert_eq!(session.filtered_lines().len(), 1);
+        assert!(session.filtered_lines()[0].contains("FatalException"));
     }
 }

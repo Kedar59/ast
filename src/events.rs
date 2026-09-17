@@ -25,5 +25,16 @@ pub enum AppEvent {
         apk_path: Option<String>,
     },
     GradleTaskCancelled,
+    ApkDeployed {
+        serial: String,
+    },
+    LogcatLine {
+        serial: String,
+        line: String,
+    },
+    LogcatStreamStatus {
+        serial: String,
+        is_streaming: bool,
+    },
     Tick,
 }

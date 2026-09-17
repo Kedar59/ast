@@ -16,9 +16,10 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 use crate::android::discovery::refresh_all_devices;
+use crate::android::logcat::start_logcat_stream;
 use crate::app::AppState;
 use crate::events::AppEvent;
-use crate::model::{ScreenType, TaskStatus};
+use crate::model::{ScreenType, SearchMode, TaskStatus};
 
 #[derive(Parser, Debug)]
 #[command(name = "ast", version, about = "Android Studio TUI")]
@@ -127,6 +128,27 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                     AppEvent::GradleTaskCancelled => {
                         app_state.gradle_state.status = TaskStatus::Cancelled;
                     }
+                    AppEvent::ApkDeployed { serial } => {
+                        app_state.screen_type = ScreenType::Logs;
+                        app_state.select_log_device(&serial);
+                        let dev_name = app_state
+                            .running_devices
+                            .iter()
+                            .find(|d| d.serial == serial)
+                            .map(|d| d.display_name())
+                            .unwrap_or_else(|| serial.clone());
+                        app_state.get_or_create_log_session(&serial, &dev_name);
+                        start_logcat_stream(serial.clone(), event_tx.clone());
+                        app_state.add_log(format!("APK deployed to '{serial}'. Streaming logcat in Logs tab."));
+                    }
+                    AppEvent::LogcatLine { serial, line } => {
+                        app_state.append_logcat_line(&serial, line);
+                    }
+                    AppEvent::LogcatStreamStatus { serial, is_streaming } => {
+                        if let Some(session) = app_state.log_state.sessions.get_mut(&serial) {
+                            session.is_streaming = is_streaming;
+                        }
+                    }
                     AppEvent::Tick => {}
                 }
             }
@@ -135,6 +157,16 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
             Some(Ok(event)) = event_reader.next() => {
                 if let Event::Key(key) = event {
                     if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+
+                    // In Logs tab search editing mode, capture all keystrokes into search input
+                    if app_state.screen_type == ScreenType::Logs
+                        && app_state.log_state.search_mode == SearchMode::Editing
+                    {
+                        if let Some(action) = handler::logs::map_key(key.code, SearchMode::Editing) {
+                            handler::logs::execute_action(action, &mut app_state, &event_tx);
+                        }
                         continue;
                     }
 
@@ -158,7 +190,9 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                                 }
                             }
                             ScreenType::Logs => {
-                                // Delegated to handler::logs when implemented
+                                if let Some(action) = handler::logs::map_key(other, app_state.log_state.search_mode) {
+                                    handler::logs::execute_action(action, &mut app_state, &event_tx);
+                                }
                             }
                         },
                     }

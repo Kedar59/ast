@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,4 +99,58 @@ impl Default for GradleState {
             apk_path: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchMode {
+    #[default]
+    Normal,
+    Editing,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeviceLogSession {
+    pub serial: String,
+    pub display_name: String,
+    pub is_streaming: bool,
+    pub lines: Vec<String>,
+    pub scroll_offset: usize,
+    pub auto_scroll: bool,
+    pub search_query: String,
+    pub log_file_path: PathBuf,
+}
+
+impl DeviceLogSession {
+    pub fn new(serial: String, display_name: String, log_file_path: PathBuf) -> Self {
+        Self {
+            serial,
+            display_name,
+            is_streaming: false,
+            lines: Vec::new(),
+            scroll_offset: 0,
+            auto_scroll: true,
+            search_query: String::new(),
+            log_file_path,
+        }
+    }
+
+    pub fn filtered_lines(&self) -> Vec<&str> {
+        if self.search_query.is_empty() {
+            self.lines.iter().map(|s| s.as_str()).collect()
+        } else {
+            let q = self.search_query.to_lowercase();
+            self.lines
+                .iter()
+                .filter(|line| line.to_lowercase().contains(&q))
+                .map(|s| s.as_str())
+                .collect()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LogState {
+    pub active_device_serial: Option<String>,
+    pub sessions: HashMap<String, DeviceLogSession>,
+    pub search_mode: SearchMode,
 }

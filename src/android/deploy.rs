@@ -95,10 +95,11 @@ pub async fn build_and_deploy_apk(
         }
     }
 
-    // Step 2: installDebug
+    // Step 2: installDebug (targeting the specific device serial)
     let mut install_cmd = Command::new("./gradlew");
     install_cmd
         .args(["installDebug", "--console=plain"])
+        .env("ANDROID_SERIAL", &serial)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -109,6 +110,11 @@ pub async fn build_and_deploy_apk(
                     action: "Build & Deploy".to_string(),
                     success: true,
                     message: format!("Successfully deployed debug APK to target '{serial}'."),
+                })
+                .await;
+            let _ = event_tx
+                .send(AppEvent::ApkDeployed {
+                    serial: serial.clone(),
                 })
                 .await;
         }
