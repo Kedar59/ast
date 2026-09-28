@@ -133,6 +133,7 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                         package_name,
                         version_name,
                         version_code,
+                        deploy_timestamp,
                     } => {
                         app_state.screen_type = ScreenType::Logs;
                         app_state.select_log_device(&serial);
@@ -151,6 +152,11 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                                 session.search_query = format!("package:{pkg}");
                             }
                         }
+
+                        // Start fresh log session for this deploy pointing to timestamped log file
+                        let deploy_log_path =
+                            crate::android::logcat::deploy_log_file_path(&serial, &deploy_timestamp);
+                        app_state.start_new_deploy_session(&serial, deploy_log_path.clone());
 
                         // Polling task to resolve app PID after launch so logs can filter by PID
                         if let Some(ref pkg) = package_name {
@@ -174,7 +180,7 @@ async fn run_app(mut terminal: DefaultTerminal, project_dir: PathBuf) -> Result<
                             });
                         }
 
-                        start_logcat_stream(serial.clone(), event_tx.clone());
+                        start_logcat_stream(serial.clone(), Some(deploy_log_path), event_tx.clone());
 
                         let ver_label = match (version_name, version_code) {
                             (Some(v), Some(c)) => format!(" (v{v}, code {c})"),

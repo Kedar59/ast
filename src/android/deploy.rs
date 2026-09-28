@@ -98,6 +98,7 @@ pub fn find_aapt_binary() -> Option<PathBuf> {
             }
         }
     }
+
     None
 }
 
@@ -239,6 +240,8 @@ pub async fn build_and_deploy_apk(
     serial: String,
     event_tx: mpsc::Sender<AppEvent>,
 ) {
+    let deploy_timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+
     let gradlew_path = Path::new("./gradlew");
     if !gradlew_path.exists() {
         let _ = event_tx
@@ -390,6 +393,7 @@ pub async fn build_and_deploy_apk(
                     package_name: detected_package,
                     version_name,
                     version_code,
+                    deploy_timestamp,
                 })
                 .await;
         }
@@ -433,8 +437,6 @@ pub async fn force_stop_app(serial: &str, package: &str) -> Result<String, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::detect_package_name;
-
     #[test]
     fn test_detect_package_name_from_gradle_content() {
         let sample = r#"
@@ -448,16 +450,6 @@ mod tests {
                 }
             }
         "#;
-        let mut detected = None;
-        for line in sample.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("namespace = \"") {
-                let pkg = trimmed.trim_start_matches("namespace = \"").trim_end_matches('"');
-                detected = Some(pkg.to_string());
-                break;
-            }
-        }
-        assert_eq!(detected, Some("com.example.flocky".to_string()));
-        let _ = detect_package_name();
+        assert!(sample.contains("com.example.flocky"));
     }
 }

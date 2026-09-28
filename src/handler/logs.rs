@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use tokio::sync::mpsc;
 
-use crate::android::logcat::toggle_logcat_stream;
+use crate::android::logcat::{start_logcat_stream, toggle_logcat_stream};
 use crate::app::AppState;
 use crate::events::AppEvent;
 use crate::model::SearchMode;
@@ -19,6 +19,7 @@ pub enum LogsAction {
     ToggleAutoScroll,
     ToggleStream,
     ClearScreen,
+    JumpToLatest,
     ScrollUp(usize),
     ScrollDown(usize),
     ScrollTop,
@@ -46,12 +47,14 @@ pub fn map_key(key: KeyCode, search_mode: SearchMode) -> Option<LogsAction> {
             KeyCode::Char('a') => Some(LogsAction::ToggleAutoScroll),
             KeyCode::Char('k') => Some(LogsAction::ToggleStream),
             KeyCode::Char('x') => Some(LogsAction::ClearScreen),
+            KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Char('G') | KeyCode::End => {
+                Some(LogsAction::JumpToLatest)
+            }
             KeyCode::Up => Some(LogsAction::ScrollUp(1)),
             KeyCode::Down => Some(LogsAction::ScrollDown(1)),
             KeyCode::PageUp => Some(LogsAction::ScrollUp(15)),
             KeyCode::PageDown => Some(LogsAction::ScrollDown(15)),
             KeyCode::Home => Some(LogsAction::ScrollTop),
-            KeyCode::End => Some(LogsAction::ScrollBottom),
             _ => None,
         },
     }
@@ -106,12 +109,21 @@ pub fn execute_action(
         LogsAction::ToggleStream => {
             if let Some(session) = state.active_log_session() {
                 let serial = session.serial.clone();
+                let path = session.log_file_path.clone();
                 let tx_clone = tx.clone();
-                toggle_logcat_stream(&serial, tx_clone);
+                toggle_logcat_stream(&serial, Some(path), tx_clone);
             }
         }
         LogsAction::ClearScreen => {
             state.clear_active_logs();
+        }
+        LogsAction::JumpToLatest => {
+            if let Some((serial, path, was_streaming)) = state.jump_to_latest_logs() {
+                if !was_streaming || !crate::android::logcat::is_logcat_streaming(&serial) {
+                    let tx_clone = tx.clone();
+                    start_logcat_stream(serial, Some(path), tx_clone);
+                }
+            }
         }
         LogsAction::ScrollUp(count) => {
             state.scroll_logs_up(count);
@@ -177,6 +189,18 @@ mod tests {
         assert_eq!(
             map_key(KeyCode::Char('k'), SearchMode::Normal),
             Some(LogsAction::ToggleStream)
+        );
+        assert_eq!(
+            map_key(KeyCode::Char('j'), SearchMode::Normal),
+            Some(LogsAction::JumpToLatest)
+        );
+        assert_eq!(
+            map_key(KeyCode::Char('G'), SearchMode::Normal),
+            Some(LogsAction::JumpToLatest)
+        );
+        assert_eq!(
+            map_key(KeyCode::End, SearchMode::Normal),
+            Some(LogsAction::JumpToLatest)
         );
     }
 }

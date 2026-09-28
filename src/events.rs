@@ -30,6 +30,7 @@ pub enum AppEvent {
         package_name: Option<String>,
         version_name: Option<String>,
         version_code: Option<String>,
+        deploy_timestamp: String,
     },
     AppPidResolved {
         serial: String,

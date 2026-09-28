@@ -95,7 +95,7 @@ impl AppState {
     // --- Logcat State Management ---
 
     pub fn log_file_path_for_serial(serial: &str) -> PathBuf {
-        crate::android::logcat::log_file_path(serial)
+        crate::android::logcat::latest_log_file_path(serial)
     }
 
     pub fn get_or_create_log_session(
@@ -121,6 +121,14 @@ impl AppState {
             session.display_name = display_name.to_string();
         }
         session
+    }
+
+    pub fn start_new_deploy_session(&mut self, serial: &str, new_log_path: PathBuf) {
+        let session = self.get_or_create_log_session(serial, "");
+        session.log_file_path = new_log_path;
+        session.lines.clear();
+        session.scroll_offset = 0;
+        session.auto_scroll = true;
     }
 
     pub fn active_log_session(&self) -> Option<&DeviceLogSession> {
@@ -227,6 +235,20 @@ impl AppState {
         if let Some(session) = self.active_log_session_mut() {
             session.auto_scroll = true;
             session.scroll_offset = session.filtered_lines().len();
+        }
+    }
+
+    /// Resets the log session window to the latest log lines, re-enables auto-scroll,
+    /// and ensures streaming is active.
+    pub fn jump_to_latest_logs(&mut self) -> Option<(String, PathBuf, bool)> {
+        if let Some(session) = self.active_log_session_mut() {
+            session.auto_scroll = true;
+            session.scroll_offset = session.filtered_lines().len();
+            let was_streaming = session.is_streaming;
+            session.is_streaming = true;
+            Some((session.serial.clone(), session.log_file_path.clone(), was_streaming))
+        } else {
+            None
         }
     }
 
@@ -480,6 +502,59 @@ mod tests {
         state.select_prev_log_device();
         assert_eq!(state.log_state.active_device_serial.as_deref(), Some("mock-emu-001"));
         assert_eq!(state.active_log_session().unwrap().lines.len(), 2);
+    }
+
+    #[test]
+    fn test_start_new_deploy_session() {
+        let mut state = AppState::default();
+        state.get_or_create_log_session("mock-device-deploy", "Pixel");
+        state.append_logcat_line("mock-device-deploy", "Initial log line".into());
+
+        let sess = state.log_state.sessions.get("mock-device-deploy").unwrap();
+        assert_eq!(sess.lines.len(), 1);
+
+        let new_path = PathBuf::from("/tmp/mock-device-deploy_20260920_194500.log");
+        state.start_new_deploy_session("mock-device-deploy", new_path.clone());
+
+        let sess_after = state.log_state.sessions.get("mock-device-deploy").unwrap();
+        assert_eq!(sess_after.log_file_path, new_path);
+        assert_eq!(sess_after.lines.len(), 0);
+        assert_eq!(sess_after.scroll_offset, 0);
+        assert!(sess_after.auto_scroll);
+    }
+
+    #[test]
+    fn test_jump_to_latest_logs() {
+        let mut state = AppState::default();
+        state.get_or_create_log_session("mock-device-jump", "Pixel");
+        state.select_log_device("mock-device-jump");
+
+        for i in 0..10 {
+            state.append_logcat_line("mock-device-jump", format!("Log line {i}"));
+        }
+
+        // Simulate scrolling up and pausing streaming
+        state.scroll_logs_up(5);
+        if let Some(session) = state.active_log_session_mut() {
+            session.is_streaming = false;
+        }
+
+        let sess = state.active_log_session().unwrap();
+        assert_eq!(sess.scroll_offset, 5);
+        assert!(!sess.auto_scroll);
+        assert!(!sess.is_streaming);
+
+        // Jump to latest
+        let res = state.jump_to_latest_logs();
+        assert!(res.is_some());
+        let (serial, _, was_streaming) = res.unwrap();
+        assert_eq!(serial, "mock-device-jump");
+        assert!(!was_streaming);
+
+        let sess_after = state.active_log_session().unwrap();
+        assert_eq!(sess_after.scroll_offset, 10);
+        assert!(sess_after.auto_scroll);
+        assert!(sess_after.is_streaming);
     }
 
     #[test]
